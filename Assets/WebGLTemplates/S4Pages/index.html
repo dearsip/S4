@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#ffffff">
+  <title>{{{ PRODUCT_NAME }}}</title>
+  <style>
+    html, body, #unity-container, #unity-canvas {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #fff;
+    }
+    #unity-container { position: fixed; inset: 0; }
+    #unity-canvas { display: block; touch-action: none; }
+    #unity-loading {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      gap: 12px;
+      color: #1b2432;
+      background: #fff;
+      font: 14px system-ui, sans-serif;
+      text-align: center;
+    }
+    #unity-progress-track {
+      width: min(320px, 70vw);
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #dce3ec;
+    }
+    #unity-progress { width: 0; height: 100%; background: #2c8fe8; }
+    #unity-error { max-width: min(680px, 90vw); color: #a32020; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="unity-loading">
+      <div>Loading {{{ PRODUCT_NAME }}}…</div>
+      <div id="unity-progress-track"><div id="unity-progress"></div></div>
+      <div id="unity-error"></div>
+    </div>
+  </div>
+  <script>
+    const canvas = document.querySelector("#unity-canvas");
+    const loading = document.querySelector("#unity-loading");
+    const progress = document.querySelector("#unity-progress");
+    const errorBox = document.querySelector("#unity-error");
+    const buildUrl = "Build";
+    const config = {
+      dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+      frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+      codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "{{{ COMPANY_NAME }}}",
+      productName: "{{{ PRODUCT_NAME }}}",
+      productVersion: "{{{ PRODUCT_VERSION }}}",
+      showBanner: (message, type) => {
+        errorBox.textContent = type === "error" ? message : "";
+      }
+    };
+    const loader = document.createElement("script");
+    loader.src = buildUrl + "/{{{ LOADER_FILENAME }}}";
+    loader.onload = () => createUnityInstance(canvas, config, value => {
+      progress.style.width = `${100 * value}%`;
+    }).then(() => {
+      loading.remove();
+      canvas.focus();
+    }).catch(message => {
+      errorBox.textContent = String(message);
+    });
+    document.body.appendChild(loader);
+  </script>
+</body>
+</html>
