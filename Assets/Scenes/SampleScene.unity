@@ -356,16 +356,19 @@ MonoBehaviour:
   vertexRadius: 0.13
   edgeRadius: 0.035
   tetrahedronColor: {r: 0.27, g: 0.72, b: 1, a: 1}
-  fundamentalRegionColor: {r: 0.95, g: 0.08, b: 0.08, a: 0.82}
+  fundamentalRegionColor: {r: 0.95, g: 0.08, b: 0.08, a: 0.5019608}
   showOriginalPose: 1
   fixedLabelSize: 0.03
   movingLabelSize: 0.07
   fixedLabelOffset: {x: -0.18, y: 0.18}
   movingLabelOffset: {x: 0.22, y: 0.22}
+  lambertBrightness: 1.1
+  lambertDiffuseStrength: 1.1
+  lambertConstantLight: 0
   animationDuration: 1.5
   showAnimationGuides: 1
-  rotationAxisColor: {r: 1, g: 0.72, b: 0.08, a: 0.8}
-  reflectionPlaneColor: {r: 1, g: 0.72156864, b: 0.078431375, a: 0.5019608}
+  rotationAxisColor: {r: 1, g: 0.72, b: 0.08, a: 0.69803923}
+  reflectionPlaneColor: {r: 1, g: 0.72156864, b: 0.078431375, a: 0.14901961}
   guideExtent: 2.5
   identityColor: {r: 0.93, g: 0.93, b: 0.93, a: 0.72}
   transpositionColor: {r: 1, g: 0.56, b: 0.12, a: 0.68}

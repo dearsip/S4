@@ -69,7 +69,8 @@
     loader.src = buildUrl + "/{{{ LOADER_FILENAME }}}";
     loader.onload = () => createUnityInstance(canvas, config, value => {
       progress.style.width = `${100 * value}%`;
-    }).then(() => {
+    }).then(instance => {
+      window.s4UnityInstance = instance;
       loading.remove();
       canvas.focus();
     }).catch(message => {

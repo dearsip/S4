@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -25,6 +26,11 @@ namespace S4Viewer
         [SerializeField, Min(0.02f)] private float movingLabelSize = 0.22f;
         [SerializeField] private Vector2 fixedLabelOffset = new Vector2(-0.18f, 0.18f);
         [SerializeField] private Vector2 movingLabelOffset = new Vector2(0.22f, 0.22f);
+
+        [Header("Lambert material")]
+        [SerializeField, Range(0f, 2f)] private float lambertBrightness = 1f;
+        [SerializeField, Range(0f, 2f)] private float lambertDiffuseStrength = 1f;
+        [SerializeField, Range(0f, 1f)] private float lambertConstantLight;
 
         [Header("Animation")]
         [SerializeField, Min(0.05f)] private float animationDuration = 1.1f;
@@ -88,6 +94,7 @@ namespace S4Viewer
         private readonly List<Matrix4x4> individualBlockMatrices = new List<Matrix4x4>();
         private readonly List<int> individualMeshBlockIndices = new List<int>();
         private readonly List<Permutation> individualMeshChambers = new List<Permutation>();
+        private readonly List<Material> lambertMaterials = new List<Material>();
         private OrbitCamera orbitCamera;
         private Text statusText;
         private Text poseText;
@@ -102,6 +109,17 @@ namespace S4Viewer
         private Permutation currentPermutation = Permutation.Identity;
         private Matrix4x4 currentMatrix = Matrix4x4.identity;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [DllImport("__Internal")]
+        private static extern void S4ClipboardWrite(string text);
+
+        [DllImport("__Internal")]
+        private static extern void S4ClipboardRead(string receiverName);
+
+        [DllImport("__Internal")]
+        private static extern void S4ClipboardInstallPasteHandler(string receiverName);
+#endif
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureAppExists()
         {
@@ -111,11 +129,29 @@ namespace S4Viewer
 
         private void Awake()
         {
+            QualitySettings.antiAliasing = 4;
             BuildWorld();
             BuildCamera();
             BuildUi();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            S4ClipboardInstallPasteHandler(gameObject.name);
+#endif
             ApplyMatrix(Matrix4x4.identity);
             statusText.text = "current: e\nidentity";
+        }
+
+        private void OnValidate()
+        {
+            for (int i = lambertMaterials.Count - 1; i >= 0; i--)
+            {
+                Material material = lambertMaterials[i];
+                if (material == null)
+                {
+                    lambertMaterials.RemoveAt(i);
+                    continue;
+                }
+                ApplyLambertSettings(material);
+            }
         }
 
         private void BuildWorld()
@@ -229,7 +265,7 @@ namespace S4Viewer
             reflectionPlaneGuide = plane.transform;
             reflectionPlaneMesh = new Mesh { name = "Reflection plane mesh" };
             plane.GetComponent<MeshFilter>().sharedMesh = reflectionPlaneMesh;
-            plane.GetComponent<MeshRenderer>().sharedMaterial = CreateMaterial(reflectionPlaneColor);
+            plane.GetComponent<MeshRenderer>().sharedMaterial = CreateFlatMaterial(reflectionPlaneColor);
             plane.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             animationGuideRoot.gameObject.SetActive(false);
         }
@@ -325,7 +361,7 @@ namespace S4Viewer
             cam.backgroundColor = Color.white;//new Color(0.045f, 0.055f, 0.075f);
             cam.nearClipPlane = 0.05f;
             orbitCamera = cam.GetComponent<OrbitCamera>() ?? cam.gameObject.AddComponent<OrbitCamera>();
-            orbitCamera.Configure(Vector3.zero, 5.6f, 23f, -35f, autoRotateDegreesPerSecond);
+            orbitCamera.Configure(Vector3.zero, 15f, 23f, -35f, autoRotateDegreesPerSecond);
         }
 
         private void BuildUi()
@@ -490,11 +526,13 @@ namespace S4Viewer
             Button save = AddButton(uiParent, "Save", SaveCameraPose);
             Button load = AddButton(uiParent, "Load", LoadCameraPose);
             Button copy = AddButton(uiParent, "Copy", CopyCameraPose);
+            Button paste = AddButton(uiParent, "Paste", PasteCameraPose);
             Button apply = AddButton(uiParent, "Apply", ApplyCameraPoseText);
-            SetRect(save.GetComponent<RectTransform>(), new Vector2(16, -982), new Vector2(68, 28), new Vector2(0, 1));
-            SetRect(load.GetComponent<RectTransform>(), new Vector2(90, -982), new Vector2(68, 28), new Vector2(0, 1));
-            SetRect(copy.GetComponent<RectTransform>(), new Vector2(164, -982), new Vector2(68, 28), new Vector2(0, 1));
-            SetRect(apply.GetComponent<RectTransform>(), new Vector2(238, -982), new Vector2(68, 28), new Vector2(0, 1));
+            SetRect(save.GetComponent<RectTransform>(), new Vector2(16, -982), new Vector2(54, 28), new Vector2(0, 1));
+            SetRect(load.GetComponent<RectTransform>(), new Vector2(76, -982), new Vector2(54, 28), new Vector2(0, 1));
+            SetRect(copy.GetComponent<RectTransform>(), new Vector2(136, -982), new Vector2(54, 28), new Vector2(0, 1));
+            SetRect(paste.GetComponent<RectTransform>(), new Vector2(196, -982), new Vector2(54, 28), new Vector2(0, 1));
+            SetRect(apply.GetComponent<RectTransform>(), new Vector2(256, -982), new Vector2(54, 28), new Vector2(0, 1));
 
             cameraStateField = AddInputField(uiParent, orbitCamera.ExportState());
             SetRect(cameraStateField.GetComponent<RectTransform>(), new Vector2(16, -1016), new Vector2(300, 34), new Vector2(0, 1));
@@ -522,7 +560,28 @@ namespace S4Viewer
         private void CopyCameraPose()
         {
             cameraStateField.text = orbitCamera.ExportState();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            S4ClipboardWrite(cameraStateField.text);
+#else
             GUIUtility.systemCopyBuffer = cameraStateField.text;
+#endif
+        }
+
+        private void PasteCameraPose()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            S4ClipboardRead(gameObject.name);
+#else
+            ReceiveClipboardText(GUIUtility.systemCopyBuffer);
+#endif
+        }
+
+        public void ReceiveClipboardText(string text)
+        {
+            if (cameraStateField == null || string.IsNullOrEmpty(text)) return;
+            cameraStateField.text = text.Trim();
+            cameraStateField.ActivateInputField();
+            cameraStateField.MoveTextEnd(false);
         }
 
         private void ApplyCameraPoseText()
@@ -694,7 +753,7 @@ namespace S4Viewer
             Mesh mesh = new Mesh { name = name + " mesh" };
             SetDoubleSidedTriangle(mesh, points);
             go.GetComponent<MeshFilter>().sharedMesh = mesh;
-            go.GetComponent<MeshRenderer>().sharedMaterial = CreateMaterial(color);
+            go.GetComponent<MeshRenderer>().sharedMaterial = CreateFlatMaterial(color);
             go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             return mesh;
         }
@@ -708,21 +767,44 @@ namespace S4Viewer
             mesh.RecalculateBounds();
         }
 
-        private static Material CreateMaterial(Color color)
+        private Material CreateMaterial(Color color)
         {
-            Shader shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
-            var material = new Material(shader) { color = color };
-            if (color.a < 0.999f && shader.name == "Standard")
+            bool transparent = color.a < 0.999f;
+            Shader shader = Resources.Load<Shader>(transparent ? "S4LitTransparent" : "S4LitOpaque");
+            if (shader == null)
             {
-                material.SetFloat("_Mode", 3f);
-                material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                material.SetInt("_ZWrite", 0);
-                material.DisableKeyword("_ALPHATEST_ON");
-                material.EnableKeyword("_ALPHABLEND_ON");
-                material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-                material.renderQueue = 3000;
+                Debug.LogError("S4 lighting shader is missing from Assets/Resources.");
+                shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
             }
+            var material = new Material(shader) { color = color };
+            material.renderQueue = transparent
+                ? (int)UnityEngine.Rendering.RenderQueue.Transparent
+                : (int)UnityEngine.Rendering.RenderQueue.Geometry;
+            ApplyLambertSettings(material);
+            lambertMaterials.Add(material);
+            return material;
+        }
+
+        private void ApplyLambertSettings(Material material)
+        {
+            if (material.HasProperty("_Brightness"))
+                material.SetFloat("_Brightness", lambertBrightness);
+            if (material.HasProperty("_DiffuseStrength"))
+                material.SetFloat("_DiffuseStrength", lambertDiffuseStrength);
+            if (material.HasProperty("_ConstantLight"))
+                material.SetFloat("_ConstantLight", lambertConstantLight);
+        }
+
+        private static Material CreateFlatMaterial(Color color)
+        {
+            Shader shader = Resources.Load<Shader>("S4FlatTransparent");
+            if (shader == null)
+            {
+                Debug.LogError("S4 flat shader is missing from Assets/Resources.");
+                shader = Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
+            }
+            var material = new Material(shader) { color = color };
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             return material;
         }
 
@@ -1364,6 +1446,11 @@ namespace S4Viewer
         private float distance;
         private float pitch;
         private float yaw;
+        private bool pinchActive;
+        private int pinchFingerA = -1;
+        private int pinchFingerB = -1;
+        private float previousPinchSeparation;
+        private float suppressMouseUntil;
 
         public void Configure(Vector3 targetPoint, float initialDistance, float initialPitch, float initialYaw, float autoSpeed)
         {
@@ -1373,6 +1460,7 @@ namespace S4Viewer
             yaw = initialYaw;
             AutoRotateSpeed = autoSpeed;
             AutoRotateEnabled = true;
+            Input.simulateMouseWithTouches = false;
             UpdateTransform();
         }
 
@@ -1413,21 +1501,76 @@ namespace S4Viewer
 
         private void LateUpdate()
         {
-            bool overUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
-            if (Input.GetMouseButton(0) && !overUi)
+            bool isInteracting = false;
+            if (Input.touchCount >= 2)
             {
-                yaw += Input.GetAxis("Mouse X") * 4.5f;
-                pitch -= Input.GetAxis("Mouse Y") * 4.5f;
-                pitch = Mathf.Clamp(pitch, -89.99f, 89.99f);
+                Touch first = Input.GetTouch(0);
+                Touch second = Input.GetTouch(1);
+                bool overUi = IsTouchOverUi(first) || IsTouchOverUi(second);
+                isInteracting = true;
+                suppressMouseUntil = Time.unscaledTime + 0.35f;
+
+                int fingerA = Mathf.Min(first.fingerId, second.fingerId);
+                int fingerB = Mathf.Max(first.fingerId, second.fingerId);
+                float currentSeparation = Vector2.Distance(first.position, second.position);
+                bool samePinch = pinchActive && fingerA == pinchFingerA && fingerB == pinchFingerB;
+                if (samePinch && !overUi)
+                {
+                    float referenceSize = Mathf.Max(1f, Mathf.Min(Screen.width, Screen.height));
+                    float normalizedPinch = (currentSeparation - previousPinchSeparation) / referenceSize;
+                    distance = Mathf.Clamp(distance * Mathf.Exp(normalizedPinch * 2.5f), 3.2f, 30f);
+                }
+                pinchActive = true;
+                pinchFingerA = fingerA;
+                pinchFingerB = fingerB;
+                previousPinchSeparation = currentSeparation;
             }
-            else if (!Input.GetMouseButton(0) && AutoRotateEnabled)
+            else if (Input.touchCount == 1)
             {
-                yaw += AutoRotateSpeed * Time.deltaTime;
+                pinchActive = false;
+                Touch touch = Input.GetTouch(0);
+                isInteracting = true;
+                suppressMouseUntil = Time.unscaledTime + 0.35f;
+                if (!IsTouchOverUi(touch) && touch.phase == TouchPhase.Moved)
+                {
+                    yaw -= touch.deltaPosition.x * 0.2f;
+                    pitch += touch.deltaPosition.y * 0.2f;
+                    pitch = Mathf.Clamp(pitch, -89.99f, 89.99f);
+                }
+            }
+            else
+            {
+                pinchActive = false;
+                if (Time.unscaledTime < suppressMouseUntil)
+                {
+                    isInteracting = true;
+                }
+                else
+                {
+                    bool overUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+                    if (Input.GetMouseButton(0))
+                    {
+                        isInteracting = true;
+                        if (!overUi)
+                        {
+                            yaw += Input.GetAxis("Mouse X") * 4.5f;
+                            pitch -= Input.GetAxis("Mouse Y") * 4.5f;
+                            pitch = Mathf.Clamp(pitch, -89.99f, 89.99f);
+                        }
+                    }
+                    if (!overUi)
+                        distance = Mathf.Clamp(distance - Input.mouseScrollDelta.y * 0.35f, 3.2f, 30f);
+                }
             }
 
-            if (!overUi)
-                distance = Mathf.Clamp(distance - Input.mouseScrollDelta.y * 0.35f, 3.2f, 30f);
+            if (!isInteracting && AutoRotateEnabled)
+                yaw += AutoRotateSpeed * Time.deltaTime;
             UpdateTransform();
+        }
+
+        private static bool IsTouchOverUi(Touch touch)
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.fingerId);
         }
 
         private void UpdateTransform()
